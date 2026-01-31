@@ -1,0 +1,12 @@
+services:
+  mcp-server:
+    build: .
+    stdin_open: true
+    ports:
+      - "${PORT:-8080}:${PORT:-8080}"
+    environment:
+      - PORT=${PORT:-8080}
+      - MCP_TRANSPORT=${MCP_TRANSPORT:-stdio}
+      - AUTH_ENABLED=${AUTH_ENABLED:-false}
+      - API_KEYS=${API_KEYS:-}
+    restart: unless-stopped
