@@ -193,3 +193,84 @@ func TestTracedTool_MultipleCallsIndependent(t *testing.T) {
 		t.Errorf("callCount = %d, want 3", callCount)
 	}
 }
+
+func TestTracedTool_PayloadLoggingDisabled(t *testing.T) {
+	// Save original state and restore after test
+	original := logPayloadsEnabled
+	defer func() { logPayloadsEnabled = original }()
+
+	// Disable payload logging
+	SetLogPayloads(false)
+
+	handler := func(ctx context.Context, req *mcp.CallToolRequest, input TestInput) (*mcp.CallToolResult, TestOutput, error) {
+		return nil, TestOutput{Result: "secret-output", Success: true}, nil
+	}
+
+	wrapped := TracedTool("secure_tool", handler)
+
+	ctx := context.Background()
+	input := TestInput{Name: "secret-data", Value: 42}
+
+	_, output, err := wrapped(ctx, nil, input)
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if output.Result != "secret-output" {
+		t.Errorf("result = %q, want %q", output.Result, "secret-output")
+	}
+	// With payload logging disabled, the tool should still function
+	// but sensitive data should not be recorded in spans
+}
+
+func TestTracedTool_PayloadLoggingEnabled(t *testing.T) {
+	// Save original state and restore after test
+	original := logPayloadsEnabled
+	defer func() { logPayloadsEnabled = original }()
+
+	// Enable payload logging
+	SetLogPayloads(true)
+
+	handler := func(ctx context.Context, req *mcp.CallToolRequest, input TestInput) (*mcp.CallToolResult, TestOutput, error) {
+		return nil, TestOutput{Result: "debug-output", Success: true}, nil
+	}
+
+	wrapped := TracedTool("debug_tool", handler)
+
+	ctx := context.Background()
+	input := TestInput{Name: "debug-data", Value: 100}
+
+	_, output, err := wrapped(ctx, nil, input)
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if output.Result != "debug-output" {
+		t.Errorf("result = %q, want %q", output.Result, "debug-output")
+	}
+	// With payload logging enabled, the tool should function
+	// and data would be recorded in spans (verified by span recorder in integration tests)
+}
+
+func TestSetLogPayloads_Toggle(t *testing.T) {
+	// Save original state and restore after test
+	original := logPayloadsEnabled
+	defer func() { logPayloadsEnabled = original }()
+
+	// Test toggling
+	SetLogPayloads(true)
+	if !logPayloadsEnabled {
+		t.Error("expected logPayloadsEnabled to be true")
+	}
+
+	SetLogPayloads(false)
+	if logPayloadsEnabled {
+		t.Error("expected logPayloadsEnabled to be false")
+	}
+
+	// Toggle back
+	SetLogPayloads(true)
+	if !logPayloadsEnabled {
+		t.Error("expected logPayloadsEnabled to be true after re-enabling")
+	}
+}

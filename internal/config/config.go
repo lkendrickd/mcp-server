@@ -1,7 +1,9 @@
 package config
 
 import (
+	"crypto/subtle"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -13,10 +15,15 @@ type Config struct {
 	MCPTransport         string // Transport mode: "stdio" or "http"
 	Environment          string // Deployment environment (e.g., "production", "staging", "development")
 	AuthEnabled          bool
+	LogTracePayloads     bool    // Whether to log request payloads in traces (security risk if enabled)
+	RateLimitEnabled     bool    // Whether to enable rate limiting
+	RateLimitRPS         float64 // Requests per second per IP
+	RateLimitBurst       int     // Maximum burst size per IP
 	OTELCollectorHost    string
 	OTELCollectorPort    string
-	OTELCollectorAddress string // Combined host:port for backward compatibility
-	apiKeys              map[string]struct{}
+	OTELCollectorAddress string   // Combined host:port for backward compatibility
+	OTELInsecure         bool     // If true, use insecure gRPC connection (no TLS)
+	apiKeys              []string // Stored as slice for constant-time iteration
 	mu                   sync.RWMutex
 }
 
@@ -38,10 +45,15 @@ func New() *Config {
 		MCPTransport:         getEnv("MCP_TRANSPORT", "stdio"),
 		Environment:          getEnv("ENVIRONMENT", "development"),
 		AuthEnabled:          getEnvBool("AUTH_ENABLED", false),
+		LogTracePayloads:     getEnvBool("LOG_TRACE_PAYLOADS", false),
+		RateLimitEnabled:     getEnvBool("RATE_LIMIT_ENABLED", true),
+		RateLimitRPS:         getEnvFloat("RATE_LIMIT_RPS", 10.0),
+		RateLimitBurst:       getEnvInt("RATE_LIMIT_BURST", 20),
 		OTELCollectorHost:    otelHost,
 		OTELCollectorPort:    otelPort,
 		OTELCollectorAddress: otelAddress,
-		apiKeys:              make(map[string]struct{}),
+		OTELInsecure:         getEnvBool("OTEL_INSECURE", false),
+		apiKeys:              []string{},
 	}
 
 	// Parse API keys from comma-separated list
@@ -51,7 +63,7 @@ func New() *Config {
 		for _, key := range keys {
 			trimmed := strings.TrimSpace(key)
 			if trimmed != "" {
-				cfg.apiKeys[trimmed] = struct{}{}
+				cfg.apiKeys = append(cfg.apiKeys, trimmed)
 			}
 		}
 	}
@@ -59,13 +71,20 @@ func New() *Config {
 	return cfg
 }
 
-// ValidateAPIKey checks if the provided key is valid using constant-time comparison
+// ValidateAPIKey checks if the provided key is valid using constant-time comparison.
+// It iterates through all keys to prevent timing attacks.
 func (c *Config) ValidateAPIKey(key string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	_, exists := c.apiKeys[key]
-	return exists
+	keyBytes := []byte(key)
+	valid := false
+	for _, storedKey := range c.apiKeys {
+		if subtle.ConstantTimeCompare(keyBytes, []byte(storedKey)) == 1 {
+			valid = true
+		}
+	}
+	return valid
 }
 
 // APIKeyCount returns the number of configured API keys
@@ -104,4 +123,32 @@ func getEnvBool(key string, defaultValue bool) bool {
 	default:
 		return defaultValue
 	}
+}
+
+// getEnvFloat retrieves an environment variable as a float64
+func getEnvFloat(key string, defaultValue float64) float64 {
+	value, exists := os.LookupEnv(key)
+	if !exists {
+		return defaultValue
+	}
+
+	f, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return defaultValue
+	}
+	return f
+}
+
+// getEnvInt retrieves an environment variable as an int
+func getEnvInt(key string, defaultValue int) int {
+	value, exists := os.LookupEnv(key)
+	if !exists {
+		return defaultValue
+	}
+
+	i, err := strconv.Atoi(value)
+	if err != nil {
+		return defaultValue
+	}
+	return i
 }

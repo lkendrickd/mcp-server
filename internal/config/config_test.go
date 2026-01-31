@@ -265,9 +265,196 @@ func TestGetEnvBool_NotSet(t *testing.T) {
 func clearEnv(t *testing.T) {
 	t.Helper()
 	vars := []string{"PORT", "LOG_LEVEL", "AUTH_ENABLED", "API_KEYS", "TEST_BOOL",
-		"OTEL_COLLECTOR_HOST", "OTEL_COLLECTOR_PORT", "OTEL_COLLECTOR_ADDRESS"}
+		"OTEL_COLLECTOR_HOST", "OTEL_COLLECTOR_PORT", "OTEL_COLLECTOR_ADDRESS",
+		"LOG_TRACE_PAYLOADS", "RATE_LIMIT_ENABLED", "RATE_LIMIT_RPS", "RATE_LIMIT_BURST",
+		"OTEL_INSECURE", "TEST_FLOAT", "TEST_INT"}
 	for _, v := range vars {
 		os.Unsetenv(v)
+	}
+}
+
+func TestNew_SecurityConfig(t *testing.T) {
+	tests := []struct {
+		name                 string
+		envVars              map[string]string
+		wantLogTracePayloads bool
+		wantRateLimitEnabled bool
+		wantRateLimitRPS     float64
+		wantRateLimitBurst   int
+		wantOTELInsecure     bool
+	}{
+		{
+			name:                 "secure defaults",
+			envVars:              map[string]string{},
+			wantLogTracePayloads: false,
+			wantRateLimitEnabled: true,
+			wantRateLimitRPS:     10.0,
+			wantRateLimitBurst:   20,
+			wantOTELInsecure:     false,
+		},
+		{
+			name: "payload logging enabled",
+			envVars: map[string]string{
+				"LOG_TRACE_PAYLOADS": "true",
+			},
+			wantLogTracePayloads: true,
+			wantRateLimitEnabled: true,
+			wantRateLimitRPS:     10.0,
+			wantRateLimitBurst:   20,
+			wantOTELInsecure:     false,
+		},
+		{
+			name: "rate limiting disabled",
+			envVars: map[string]string{
+				"RATE_LIMIT_ENABLED": "false",
+			},
+			wantLogTracePayloads: false,
+			wantRateLimitEnabled: false,
+			wantRateLimitRPS:     10.0,
+			wantRateLimitBurst:   20,
+			wantOTELInsecure:     false,
+		},
+		{
+			name: "custom rate limit settings",
+			envVars: map[string]string{
+				"RATE_LIMIT_RPS":   "100.5",
+				"RATE_LIMIT_BURST": "50",
+			},
+			wantLogTracePayloads: false,
+			wantRateLimitEnabled: true,
+			wantRateLimitRPS:     100.5,
+			wantRateLimitBurst:   50,
+			wantOTELInsecure:     false,
+		},
+		{
+			name: "OTEL insecure mode",
+			envVars: map[string]string{
+				"OTEL_INSECURE": "true",
+			},
+			wantLogTracePayloads: false,
+			wantRateLimitEnabled: true,
+			wantRateLimitRPS:     10.0,
+			wantRateLimitBurst:   20,
+			wantOTELInsecure:     true,
+		},
+		{
+			name: "all security options configured",
+			envVars: map[string]string{
+				"LOG_TRACE_PAYLOADS": "true",
+				"RATE_LIMIT_ENABLED": "false",
+				"RATE_LIMIT_RPS":     "50",
+				"RATE_LIMIT_BURST":   "100",
+				"OTEL_INSECURE":      "true",
+			},
+			wantLogTracePayloads: true,
+			wantRateLimitEnabled: false,
+			wantRateLimitRPS:     50.0,
+			wantRateLimitBurst:   100,
+			wantOTELInsecure:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearEnv(t)
+			for k, v := range tt.envVars {
+				t.Setenv(k, v)
+			}
+
+			cfg := New()
+
+			if cfg.LogTracePayloads != tt.wantLogTracePayloads {
+				t.Errorf("LogTracePayloads = %v, want %v", cfg.LogTracePayloads, tt.wantLogTracePayloads)
+			}
+			if cfg.RateLimitEnabled != tt.wantRateLimitEnabled {
+				t.Errorf("RateLimitEnabled = %v, want %v", cfg.RateLimitEnabled, tt.wantRateLimitEnabled)
+			}
+			if cfg.RateLimitRPS != tt.wantRateLimitRPS {
+				t.Errorf("RateLimitRPS = %v, want %v", cfg.RateLimitRPS, tt.wantRateLimitRPS)
+			}
+			if cfg.RateLimitBurst != tt.wantRateLimitBurst {
+				t.Errorf("RateLimitBurst = %v, want %v", cfg.RateLimitBurst, tt.wantRateLimitBurst)
+			}
+			if cfg.OTELInsecure != tt.wantOTELInsecure {
+				t.Errorf("OTELInsecure = %v, want %v", cfg.OTELInsecure, tt.wantOTELInsecure)
+			}
+		})
+	}
+}
+
+func TestGetEnvFloat(t *testing.T) {
+	tests := []struct {
+		name         string
+		value        string
+		defaultValue float64
+		want         float64
+	}{
+		{name: "valid float", value: "10.5", defaultValue: 1.0, want: 10.5},
+		{name: "valid integer as float", value: "42", defaultValue: 1.0, want: 42.0},
+		{name: "negative float", value: "-5.5", defaultValue: 1.0, want: -5.5},
+		{name: "zero", value: "0", defaultValue: 1.0, want: 0.0},
+		{name: "invalid returns default", value: "not-a-number", defaultValue: 99.9, want: 99.9},
+		{name: "empty returns default", value: "", defaultValue: 50.0, want: 50.0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearEnv(t)
+			if tt.value != "" {
+				t.Setenv("TEST_FLOAT", tt.value)
+			}
+
+			got := getEnvFloat("TEST_FLOAT", tt.defaultValue)
+			if got != tt.want {
+				t.Errorf("getEnvFloat() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetEnvFloat_NotSet(t *testing.T) {
+	clearEnv(t)
+
+	if got := getEnvFloat("NOT_SET", 123.456); got != 123.456 {
+		t.Errorf("getEnvFloat() = %v, want 123.456 (default)", got)
+	}
+}
+
+func TestGetEnvInt(t *testing.T) {
+	tests := []struct {
+		name         string
+		value        string
+		defaultValue int
+		want         int
+	}{
+		{name: "valid int", value: "42", defaultValue: 1, want: 42},
+		{name: "negative int", value: "-10", defaultValue: 1, want: -10},
+		{name: "zero", value: "0", defaultValue: 1, want: 0},
+		{name: "invalid returns default", value: "not-a-number", defaultValue: 99, want: 99},
+		{name: "float returns default", value: "10.5", defaultValue: 99, want: 99},
+		{name: "empty returns default", value: "", defaultValue: 50, want: 50},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearEnv(t)
+			if tt.value != "" {
+				t.Setenv("TEST_INT", tt.value)
+			}
+
+			got := getEnvInt("TEST_INT", tt.defaultValue)
+			if got != tt.want {
+				t.Errorf("getEnvInt() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetEnvInt_NotSet(t *testing.T) {
+	clearEnv(t)
+
+	if got := getEnvInt("NOT_SET", 999); got != 999 {
+		t.Errorf("getEnvInt() = %v, want 999 (default)", got)
 	}
 }
 

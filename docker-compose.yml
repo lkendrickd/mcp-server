@@ -10,8 +10,15 @@ services:
       - AUTH_ENABLED=${AUTH_ENABLED:-false}
       - API_KEYS=${API_KEYS:-}
       - ENVIRONMENT=${ENVIRONMENT:-development}
+      # Rate limiting
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+      - RATE_LIMIT_RPS=${RATE_LIMIT_RPS:-10}
+      - RATE_LIMIT_BURST=${RATE_LIMIT_BURST:-20}
+      # OpenTelemetry
       - OTEL_COLLECTOR_HOST=${OTEL_COLLECTOR_HOST:-otel-collector}
       - OTEL_COLLECTOR_PORT=${OTEL_COLLECTOR_PORT:-4317}
+      - OTEL_INSECURE=${OTEL_INSECURE:-true}
+      - LOG_TRACE_PAYLOADS=${LOG_TRACE_PAYLOADS:-false}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${PORT:-8080}/health"]
       interval: 30s

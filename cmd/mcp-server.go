@@ -2,9 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -20,11 +25,27 @@ import (
 	_ "github.com/lkendrickd/mcp-server/internal/tools/uuid"
 )
 
+const (
+	shutdownTimeout = 30 * time.Second
+)
+
 // version is set via ldflags at build time
 var version = "dev"
 
 func main() {
-	ctx := context.Background()
+	// Handle --version flag
+	showVersion := flag.Bool("version", false, "Print version and exit")
+	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		os.Exit(0)
+	}
+
+	// Create context that listens for SIGINT and SIGTERM
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 
 	// Load configuration from environment
@@ -36,6 +57,7 @@ func main() {
 		ServiceVersion:   version,
 		CollectorAddress: cfg.OTELCollectorAddress,
 		Environment:      cfg.Environment,
+		Insecure:         cfg.OTELInsecure,
 	})
 	if err != nil {
 		logger.Error("failed to setup telemetry", "error", err)
@@ -49,6 +71,15 @@ func main() {
 
 	if cfg.OTELCollectorAddress != "" {
 		logger.Info("telemetry enabled", "collector", cfg.OTELCollectorAddress)
+		if cfg.OTELInsecure {
+			logger.Warn("OTEL using insecure connection (no TLS) - not recommended for production")
+		}
+	}
+
+	// Configure payload logging for traces (disabled by default for security)
+	middleware.SetLogPayloads(cfg.LogTracePayloads)
+	if cfg.LogTracePayloads {
+		logger.Warn("trace payload logging enabled - sensitive data may be exposed to telemetry backend")
 	}
 
 	// Register prometheus metrics
@@ -78,7 +109,7 @@ func main() {
 		mux.Handle("/mcp", httpHandler)
 		mux.Handle("/mcp/", httpHandler)
 
-		// Build handler chain: otelhttp -> mcp tracing -> metrics -> auth (if enabled) -> mux
+		// Build handler chain: otelhttp -> rate limit -> mcp tracing -> metrics -> auth (if enabled) -> mux
 		var handler http.Handler = mux
 		if cfg.AuthEnabled {
 			// Protect /mcp endpoints with API key authentication
@@ -87,10 +118,21 @@ func main() {
 			logger.Info("API key authentication enabled", "key_count", cfg.APIKeyCount())
 		}
 		handler = middleware.MetricsMiddleware(handler)
-		handler = middleware.MCPTracingMiddleware(handler)
+		handler = middleware.MCPTracingMiddleware(cfg.LogTracePayloads)(handler)
+
+		// Add rate limiting if enabled (applied early to reject before expensive ops)
+		var rateLimiter *middleware.RateLimiter
+		if cfg.RateLimitEnabled {
+			rateLimiter = middleware.NewRateLimiter(middleware.RateLimiterConfig{
+				RequestsPerSecond: cfg.RateLimitRPS,
+				BurstSize:         cfg.RateLimitBurst,
+			})
+			handler = rateLimiter.Middleware(handler)
+			logger.Info("rate limiting enabled", "rps", cfg.RateLimitRPS, "burst", cfg.RateLimitBurst)
+		}
+
 		handler = otelhttp.NewHandler(handler, "mcp-server")
 
-		logger.Info("mcp server starting with HTTP transport", "port", cfg.Port)
 		srv := &http.Server{
 			Addr:         ":" + cfg.Port,
 			Handler:      handler,
@@ -98,36 +140,87 @@ func main() {
 			WriteTimeout: 30 * time.Second,
 			IdleTimeout:  120 * time.Second,
 		}
-		if err := srv.ListenAndServe(); err != nil {
-			logger.Error("http server error", "error", err)
-			os.Exit(1)
+
+		// Start server in goroutine
+		go func() {
+			logger.Info("mcp server starting with HTTP transport", "port", cfg.Port)
+			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Error("http server error", "error", err)
+				os.Exit(1)
+			}
+		}()
+
+		// Wait for shutdown signal
+		<-ctx.Done()
+		stop() // Stop receiving further signals
+		logger.Info("shutting down gracefully, press Ctrl+C again to force")
+
+		// Create shutdown context with timeout
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+
+		// Shutdown HTTP server
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			logger.Error("server shutdown error", "error", err)
 		}
+
+		// Stop rate limiter cleanup goroutine
+		if rateLimiter != nil {
+			rateLimiter.Stop()
+		}
+
+		logger.Info("server shutdown complete")
 
 	default:
 		// Stdio transport (default) - for CLI usage
 		// Start HTTP server for health/metrics in background
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /health", handlers.HealthHandler)
+		mux.Handle("GET /metrics", promhttp.Handler())
+
+		srv := &http.Server{
+			Addr:         ":" + cfg.Port,
+			Handler:      middleware.MetricsMiddleware(mux),
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 30 * time.Second,
+			IdleTimeout:  120 * time.Second,
+		}
+
 		go func() {
-			mux := http.NewServeMux()
-			mux.HandleFunc("GET /health", handlers.HealthHandler)
-			mux.Handle("GET /metrics", promhttp.Handler())
 			logger.Info("http server starting", "port", cfg.Port)
-			srv := &http.Server{
-				Addr:         ":" + cfg.Port,
-				Handler:      middleware.MetricsMiddleware(mux),
-				ReadTimeout:  30 * time.Second,
-				WriteTimeout: 30 * time.Second,
-				IdleTimeout:  120 * time.Second,
-			}
-			if err := srv.ListenAndServe(); err != nil {
+			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				logger.Error("http server error", "error", err)
 			}
 		}()
 
+		// Run MCP server with stdio transport (blocks until done or context cancelled)
 		logger.Info("mcp server running with stdio transport")
-		if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
-			logger.Error("mcp server error", "error", err)
-			os.Exit(1)
+		mcpCtx, mcpCancel := context.WithCancel(ctx)
+		defer mcpCancel()
+
+		go func() {
+			if err := server.Run(mcpCtx, &mcp.StdioTransport{}); err != nil {
+				logger.Error("mcp server error", "error", err)
+			}
+		}()
+
+		// Wait for shutdown signal
+		<-ctx.Done()
+		stop()
+		logger.Info("shutting down gracefully")
+
+		// Create shutdown context with timeout
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+
+		// Cancel MCP context
+		mcpCancel()
+
+		// Shutdown HTTP server
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			logger.Error("server shutdown error", "error", err)
 		}
+
+		logger.Info("server shutdown complete")
 	}
 }
-

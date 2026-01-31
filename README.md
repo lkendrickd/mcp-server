@@ -11,6 +11,7 @@ A Model Context Protocol (MCP) server built with Go, supporting both stdio and H
 - MCP protocol support via [go-sdk](https://github.com/modelcontextprotocol/go-sdk)
 - Dual transport modes: stdio (CLI) and HTTP (Streamable HTTP)
 - API key authentication middleware for HTTP transport
+- OpenTelemetry tracing with MCP-specific attributes (tool calls, methods, arguments)
 - Prometheus metrics with path, method, and status labels
 - Structured JSON logging via `slog`
 - Configuration via environment variables
@@ -79,8 +80,13 @@ All configuration is via environment variables.
 | `AUTH_ENABLED` | `false` | Enable API key authentication (HTTP only) |
 | `API_KEYS` | | Comma-separated list of valid API keys |
 | `ENVIRONMENT` | `development` | Deployment environment (used in telemetry) |
+| `RATE_LIMIT_ENABLED` | `true` | Enable per-IP rate limiting (DDoS protection) |
+| `RATE_LIMIT_RPS` | `10` | Requests per second per IP |
+| `RATE_LIMIT_BURST` | `20` | Maximum burst size per IP |
 | `OTEL_COLLECTOR_HOST` | | OpenTelemetry collector hostname (enables tracing) |
 | `OTEL_COLLECTOR_PORT` | `4317` | OpenTelemetry collector gRPC port |
+| `OTEL_INSECURE` | `false` | Use insecure gRPC (no TLS) for OTEL collector |
+| `LOG_TRACE_PAYLOADS` | `false` | Log request/response payloads in traces (security risk) |
 
 ```bash
 # Example: Run HTTP with authentication
@@ -88,6 +94,9 @@ MCP_TRANSPORT=http AUTH_ENABLED=true API_KEYS="key1,key2" make run
 
 # Example: Run with OpenTelemetry tracing
 OTEL_COLLECTOR_HOST=localhost OTEL_COLLECTOR_PORT=4317 make run
+
+# Example: Run with custom rate limiting
+RATE_LIMIT_RPS=100 RATE_LIMIT_BURST=50 make run
 ```
 
 ### Transport Modes
@@ -102,6 +111,40 @@ make run
 
 ```bash
 MCP_TRANSPORT=http make run
+```
+
+### Security
+
+The server includes several security features enabled by default:
+
+#### Rate Limiting
+
+Per-IP rate limiting protects against DDoS attacks using a token bucket algorithm:
+
+- **Enabled by default** (`RATE_LIMIT_ENABLED=true`)
+- Default: 10 requests/second with burst of 20
+- Supports `X-Forwarded-For` and `X-Real-IP` headers for proxy deployments
+- Returns `429 Too Many Requests` with `Retry-After` header when exceeded
+
+```bash
+# Customize rate limits
+RATE_LIMIT_RPS=100 RATE_LIMIT_BURST=200 make run
+```
+
+#### Secure Defaults
+
+- **TLS for OTEL**: Telemetry uses TLS by default (`OTEL_INSECURE=false`)
+- **No payload logging**: Request/response payloads are not logged to traces by default
+- **Constant-time API key comparison**: Prevents timing attacks on authentication
+
+#### Security Warnings
+
+The server logs warnings when insecure options are enabled:
+
+```bash
+# These log warnings at startup - use only for development
+OTEL_INSECURE=true        # Traces sent without TLS
+LOG_TRACE_PAYLOADS=true   # Sensitive data may be exposed to telemetry
 ```
 
 ### Authentication
@@ -174,7 +217,7 @@ MCP uses a stateful session protocol. To call tools, you must:
 SESSION_ID=$(curl -s -D - -X POST http://localhost:8080/mcp \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"curl-test","version":"1.0"}}}' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"curl-test","version":"1.0"}}}' \
   2>&1 | grep -i "mcp-session-id" | awk '{print $2}' | tr -d '\r')
 
 echo "Session ID: $SESSION_ID"
@@ -211,7 +254,7 @@ echo "Initializing session..."
 SESSION_ID=$(curl -s -D - -X POST "$BASE_URL/mcp" \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $API_KEY" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"curl-test","version":"1.0"}}}' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"curl-test","version":"1.0"}}}' \
   2>&1 | grep -i "mcp-session-id" | awk '{print $2}' | tr -d '\r')
 
 if [ -z "$SESSION_ID" ]; then
@@ -269,6 +312,57 @@ make docker-restart
 # Stop services
 make docker-down
 ```
+
+### Instrumentation
+
+The server includes OpenTelemetry instrumentation for distributed tracing. When running with Docker Compose, traces flow through a complete observability stack:
+
+```
+mcp-server → otel-collector → Jaeger
+```
+
+#### Architecture
+
+| Service | Port | Description |
+|---------|------|-------------|
+| mcp-server | 8080 | MCP server with OTLP gRPC exporter |
+| otel-collector | 4317 | OpenTelemetry Collector (gRPC receiver) |
+| jaeger | 16686 | Jaeger UI for trace visualization |
+
+#### Trace Attributes
+
+The instrumentation captures MCP-specific attributes on each trace:
+
+| Attribute | Description |
+|-----------|-------------|
+| `mcp.method` | JSON-RPC method (e.g., `tools/call`, `initialize`) |
+| `mcp.tool.name` | Tool being called (e.g., `generate_uuid`) |
+| `mcp.tool.arguments` | Tool input arguments as JSON |
+| `mcp.request.id` | JSON-RPC request ID |
+| `service.name` | Service identifier (`mcp-server`) |
+| `service.version` | Version from the `version` file |
+| `deployment.environment` | Environment (e.g., `development`, `production`) |
+
+#### Viewing Traces
+
+1. Start the stack with `make docker-up`
+2. Make some requests to the MCP server
+3. Open Jaeger UI at http://localhost:16686
+4. Select `mcp-server` from the Service dropdown
+5. Click "Find Traces" to view request traces
+
+#### Configuration
+
+Tracing is enabled when `OTEL_COLLECTOR_HOST` is set:
+
+```bash
+# In .env or environment
+OTEL_COLLECTOR_HOST=otel-collector  # hostname of the collector
+OTEL_COLLECTOR_PORT=4317            # gRPC port (default: 4317)
+ENVIRONMENT=production              # deployment environment label
+```
+
+When `OTEL_COLLECTOR_HOST` is not set, tracing is disabled (no-op).
 
 ### Project Structure
 

@@ -17,9 +17,9 @@ func TestRegister(t *testing.T) {
 	Registry = nil
 
 	tests := []struct {
-		name              string
-		registrarsToAdd   int
-		expectedLenAfter  int
+		name             string
+		registrarsToAdd  int
+		expectedLenAfter int
 	}{
 		{
 			name:             "register single registrar",
