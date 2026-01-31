@@ -2,7 +2,7 @@
 
 <img src="images/logo.png" alt="MCP Server Logo" width="400"/>
 
-A Model Context Protocol (MCP) server built with Go, supporting both stdio and HTTP transports for integration withMCP-compatible clients.
+A Model Context Protocol (MCP) server built with Go, supporting both stdio and HTTP transports for integration with MCP-compatible clients.
 
 ### Features
 
@@ -23,6 +23,12 @@ A Model Context Protocol (MCP) server built with Go, supporting both stdio and H
 
 > **Want to add your own tool?** Check out the [Developer Guide](DEVELOPER_GUIDE.md) for a step-by-step walkthrough.
 
+### Requirements
+
+- **Docker** and **Docker Compose** (recommended)
+- **Go 1.25+** (for local development only)
+- **Make** (optional, for convenience targets)
+
 ### Endpoints (HTTP Transport)
 
 | Endpoint | Method | Auth Required | Description |
@@ -36,24 +42,26 @@ A Model Context Protocol (MCP) server built with Go, supporting both stdio and H
 ### Quick Start
 
 ```bash
-# Show available make targets
-make
-
-# Copy and configure environment
+# 1. Configure environment
 make config
 
-# Build and run locally (stdio mode)
-make run
+# 2. Edit .env to set your API key (optional but recommended)
+#    API_KEYS=your-secret-key
 
-# Run with HTTP transport
-MCP_TRANSPORT=http make run
-
-# Run with Docker Compose
+# 3. Start the server
 make docker-up
 
-# Run tests
-make test
+# 4. Verify it's running
+curl http://localhost:8080/health
+
+# 5. View logs
+make docker-logs
+
+# 6. Check the health endpoint
+curl http://localhost:8080/health
 ```
+
+For local development without Docker, see the [Development](#development) section.
 
 ### Configuration
 
@@ -203,7 +211,15 @@ make docker-down
 
 ### Development
 
+Requires Go 1.24+ for local development.
+
 ```bash
+# Build and run locally (stdio mode)
+make run
+
+# Run with HTTP transport
+MCP_TRANSPORT=http make run
+
 # Run tests
 make test
 
