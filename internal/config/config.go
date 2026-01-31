@@ -8,20 +8,40 @@ import (
 
 // Config holds the application configuration loaded from environment variables
 type Config struct {
-	Port        string
-	LogLevel    string
-	AuthEnabled bool
-	apiKeys     map[string]struct{}
-	mu          sync.RWMutex
+	Port                 string
+	LogLevel             string
+	MCPTransport         string // Transport mode: "stdio" or "http"
+	Environment          string // Deployment environment (e.g., "production", "staging", "development")
+	AuthEnabled          bool
+	OTELCollectorHost    string
+	OTELCollectorPort    string
+	OTELCollectorAddress string // Combined host:port for backward compatibility
+	apiKeys              map[string]struct{}
+	mu                   sync.RWMutex
 }
 
 // New creates a new Config from environment variables
 func New() *Config {
+	otelHost := getEnv("OTEL_COLLECTOR_HOST", "")
+	otelPort := getEnv("OTEL_COLLECTOR_PORT", "4317")
+
+	// Build collector address from host and port
+	// For backward compatibility, also check OTEL_COLLECTOR_ADDRESS
+	otelAddress := getEnv("OTEL_COLLECTOR_ADDRESS", "")
+	if otelAddress == "" && otelHost != "" {
+		otelAddress = otelHost + ":" + otelPort
+	}
+
 	cfg := &Config{
-		Port:        getEnv("PORT", "8080"),
-		LogLevel:    getEnv("LOG_LEVEL", "info"),
-		AuthEnabled: getEnvBool("AUTH_ENABLED", false),
-		apiKeys:     make(map[string]struct{}),
+		Port:                 getEnv("PORT", "8080"),
+		LogLevel:             getEnv("LOG_LEVEL", "info"),
+		MCPTransport:         getEnv("MCP_TRANSPORT", "stdio"),
+		Environment:          getEnv("ENVIRONMENT", "development"),
+		AuthEnabled:          getEnvBool("AUTH_ENABLED", false),
+		OTELCollectorHost:    otelHost,
+		OTELCollectorPort:    otelPort,
+		OTELCollectorAddress: otelAddress,
+		apiKeys:              make(map[string]struct{}),
 	}
 
 	// Parse API keys from comma-separated list

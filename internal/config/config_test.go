@@ -264,8 +264,87 @@ func TestGetEnvBool_NotSet(t *testing.T) {
 // clearEnv unsets relevant environment variables for clean test state
 func clearEnv(t *testing.T) {
 	t.Helper()
-	vars := []string{"PORT", "LOG_LEVEL", "AUTH_ENABLED", "API_KEYS", "TEST_BOOL"}
+	vars := []string{"PORT", "LOG_LEVEL", "AUTH_ENABLED", "API_KEYS", "TEST_BOOL",
+		"OTEL_COLLECTOR_HOST", "OTEL_COLLECTOR_PORT", "OTEL_COLLECTOR_ADDRESS"}
 	for _, v := range vars {
 		os.Unsetenv(v)
+	}
+}
+
+func TestNew_OTELConfig(t *testing.T) {
+	tests := []struct {
+		name        string
+		envVars     map[string]string
+		wantHost    string
+		wantPort    string
+		wantAddress string
+	}{
+		{
+			name:        "defaults when not set",
+			envVars:     map[string]string{},
+			wantHost:    "",
+			wantPort:    "4317",
+			wantAddress: "",
+		},
+		{
+			name: "host and default port",
+			envVars: map[string]string{
+				"OTEL_COLLECTOR_HOST": "localhost",
+			},
+			wantHost:    "localhost",
+			wantPort:    "4317",
+			wantAddress: "localhost:4317",
+		},
+		{
+			name: "host and custom port",
+			envVars: map[string]string{
+				"OTEL_COLLECTOR_HOST": "otel.example.com",
+				"OTEL_COLLECTOR_PORT": "4318",
+			},
+			wantHost:    "otel.example.com",
+			wantPort:    "4318",
+			wantAddress: "otel.example.com:4318",
+		},
+		{
+			name: "backward compatibility with OTEL_COLLECTOR_ADDRESS",
+			envVars: map[string]string{
+				"OTEL_COLLECTOR_ADDRESS": "legacy-host:9999",
+			},
+			wantHost:    "",
+			wantPort:    "4317",
+			wantAddress: "legacy-host:9999",
+		},
+		{
+			name: "ADDRESS takes precedence when set",
+			envVars: map[string]string{
+				"OTEL_COLLECTOR_HOST":    "new-host",
+				"OTEL_COLLECTOR_PORT":    "5555",
+				"OTEL_COLLECTOR_ADDRESS": "old-host:1234",
+			},
+			wantHost:    "new-host",
+			wantPort:    "5555",
+			wantAddress: "old-host:1234", // ADDRESS is preserved for backward compatibility
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearEnv(t)
+			for k, v := range tt.envVars {
+				t.Setenv(k, v)
+			}
+
+			cfg := New()
+
+			if cfg.OTELCollectorHost != tt.wantHost {
+				t.Errorf("OTELCollectorHost = %q, want %q", cfg.OTELCollectorHost, tt.wantHost)
+			}
+			if cfg.OTELCollectorPort != tt.wantPort {
+				t.Errorf("OTELCollectorPort = %q, want %q", cfg.OTELCollectorPort, tt.wantPort)
+			}
+			if cfg.OTELCollectorAddress != tt.wantAddress {
+				t.Errorf("OTELCollectorAddress = %q, want %q", cfg.OTELCollectorAddress, tt.wantAddress)
+			}
+		})
 	}
 }

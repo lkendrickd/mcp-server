@@ -16,9 +16,10 @@ COPY . .
 # Change directory to the binary directory
 WORKDIR /opt/mcp-server/cmd
 
-# Build the Go app
+# Build the Go app with version injection from version file
 # Output the binary to the root of /opt/mcp-server so it's easy to find in the next stage
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o ../mcp-server .
+RUN VERSION=$(cat /opt/mcp-server/version 2>/dev/null || echo "dev") && \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.version=${VERSION}" -a -installsuffix cgo -o ../mcp-server .
 
 # Start a new stage using distroless for minimal attack surface
 FROM gcr.io/distroless/static:latest

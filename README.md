@@ -76,10 +76,16 @@ All configuration is via environment variables.
 | `MCP_TRANSPORT` | `stdio` | Transport mode: `stdio` or `http` |
 | `AUTH_ENABLED` | `false` | Enable API key authentication (HTTP only) |
 | `API_KEYS` | | Comma-separated list of valid API keys |
+| `ENVIRONMENT` | `development` | Deployment environment (used in telemetry) |
+| `OTEL_COLLECTOR_HOST` | | OpenTelemetry collector hostname (enables tracing) |
+| `OTEL_COLLECTOR_PORT` | `4317` | OpenTelemetry collector gRPC port |
 
 ```bash
 # Example: Run HTTP with authentication
 MCP_TRANSPORT=http AUTH_ENABLED=true API_KEYS="key1,key2" make run
+
+# Example: Run with OpenTelemetry tracing
+OTEL_COLLECTOR_HOST=localhost OTEL_COLLECTOR_PORT=4317 make run
 ```
 
 ### Transport Modes
@@ -153,12 +159,82 @@ Metrics:
 curl http://localhost:8080/metrics
 ```
 
-MCP Initialize (with auth):
+#### MCP Session Workflow
+
+MCP uses a stateful session protocol. To call tools, you must:
+1. Initialize a session and capture the session ID
+2. Send an initialized notification
+3. Call tools using the session ID
+
+**Step 1: Initialize session and capture session ID**
 ```bash
-curl -X POST http://localhost:8080/mcp \
-  -H "X-API-Key: your-api-key" \
+# Initialize and extract session ID from response headers
+SESSION_ID=$(curl -s -D - -X POST http://localhost:8080/mcp \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+  -H "X-API-Key: your-api-key" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"curl-test","version":"1.0"}}}' \
+  2>&1 | grep -i "mcp-session-id" | awk '{print $2}' | tr -d '\r')
+
+echo "Session ID: $SESSION_ID"
+```
+
+**Step 2: Send initialized notification**
+```bash
+curl -s -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -H "Mcp-Session-Id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+```
+
+**Step 3: Call a tool**
+```bash
+curl -s -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -H "Mcp-Session-Id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"generate_uuid","arguments":{}}}'
+```
+
+**Complete script example:**
+```bash
+#!/bin/bash
+# Test MCP server with a complete session workflow
+
+API_KEY="your-api-key"
+BASE_URL="http://localhost:8080"
+
+# Initialize session
+echo "Initializing session..."
+SESSION_ID=$(curl -s -D - -X POST "$BASE_URL/mcp" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"curl-test","version":"1.0"}}}' \
+  2>&1 | grep -i "mcp-session-id" | awk '{print $2}' | tr -d '\r')
+
+if [ -z "$SESSION_ID" ]; then
+  echo "Failed to get session ID"
+  exit 1
+fi
+echo "Session ID: $SESSION_ID"
+
+# Send initialized notification
+echo "Sending initialized notification..."
+curl -s -X POST "$BASE_URL/mcp" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -H "Mcp-Session-Id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+
+# Call generate_uuid tool
+echo -e "\nCalling generate_uuid tool..."
+curl -s -X POST "$BASE_URL/mcp" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -H "Mcp-Session-Id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"generate_uuid","arguments":{}}}' | jq .
+
+echo -e "\nDone!"
 ```
 
 ### Docker

@@ -22,6 +22,9 @@ endif
 DOCKER_IMAGE_NAME=mcp-server
 DOCKER_CONTAINER_NAME=mcp-server-instance
 
+# Detect docker compose command (V2 plugin vs V1 standalone)
+DOCKER_COMPOSE := $(shell which docker-compose >/dev/null 2>&1 && echo "docker-compose" || echo "docker compose")
+
 # LOG_LEVEL can be set to debug, info, warn, error, or fatal
 LOG_LEVEL ?= info
 
@@ -37,8 +40,18 @@ AUTH_ENABLED ?= false
 # API_KEYS is a comma-separated list of valid API keys
 API_KEYS ?=
 
+# OpenTelemetry Collector configuration
+OTEL_COLLECTOR_HOST ?=
+OTEL_COLLECTOR_PORT ?= 4317
+
 # Binary output name
 BINARY_NAME=mcp-server
+
+# Version from version file
+VERSION := $(shell cat version 2>/dev/null || echo "dev")
+
+# Build flags for version injection
+LDFLAGS=-ldflags "-X main.version=$(VERSION)"
 
 # golangci-lint version (pinned for reproducibility)
 GOLANGCI_LINT_VERSION=v1.64.8
@@ -69,7 +82,7 @@ config: ## Create .env from example.env if it doesn't exist
 
 .PHONY: build
 build: ## Build the application binary
-	go build -o ${BINARY_NAME} cmd/$(BINARY_NAME).go
+	go build $(LDFLAGS) -o ${BINARY_NAME} cmd/$(BINARY_NAME).go
 
 .PHONY: run
 run: build ## Build and run the application locally
@@ -91,6 +104,11 @@ lint: ## Run golangci-lint (installs if not found)
 .PHONY: fmt
 fmt: ## Format Go source files
 	go fmt ./...
+
+.PHONY: go-update
+go-update: ## Update all Go dependencies to latest versions
+	go get -u ./...
+	go mod tidy
 
 .PHONY: coverage
 coverage: ## Run tests with coverage report
@@ -126,15 +144,15 @@ docker-clean: ## Stop and remove Docker container
 
 .PHONY: docker-up
 docker-up: ## Start services with docker-compose
-	docker compose up -d --build
+	$(DOCKER_COMPOSE) up -d --build
 
 .PHONY: docker-down
 docker-down: ## Stop services with docker-compose
-	docker compose down
+	$(DOCKER_COMPOSE) down
 
 .PHONY: docker-logs
 docker-logs: ## View docker-compose logs
-	docker compose logs -f
+	$(DOCKER_COMPOSE) logs -f
 
 .PHONY: docker-restart
 docker-restart: docker-down docker-up ## Restart docker-compose services

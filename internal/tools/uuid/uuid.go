@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/lkendrickd/mcp-server/internal/middleware"
 	"github.com/lkendrickd/mcp-server/internal/tools"
 )
 
@@ -33,6 +34,6 @@ func init() {
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "generate_uuid",
 			Description: "Generate a new UUID v4",
-		}, GenerateUUID)
+		}, middleware.TracedTool("generate_uuid", GenerateUUID))
 	})
 }

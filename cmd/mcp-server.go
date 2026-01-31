@@ -5,23 +5,51 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/lkendrickd/mcp-server/internal/config"
 	"github.com/lkendrickd/mcp-server/internal/handlers"
 	"github.com/lkendrickd/mcp-server/internal/middleware"
+	"github.com/lkendrickd/mcp-server/internal/telemetry"
 	"github.com/lkendrickd/mcp-server/internal/tools"
 	_ "github.com/lkendrickd/mcp-server/internal/tools/uuid"
 )
 
+// version is set via ldflags at build time
+var version = "dev"
+
 func main() {
+	ctx := context.Background()
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 
 	// Load configuration from environment
 	cfg := config.New()
+
+	// Initialize OpenTelemetry (no-op if OTEL_COLLECTOR_ADDRESS not set)
+	shutdownTelemetry, err := telemetry.Setup(ctx, telemetry.Config{
+		ServiceName:      "mcp-server",
+		ServiceVersion:   version,
+		CollectorAddress: cfg.OTELCollectorAddress,
+		Environment:      cfg.Environment,
+	})
+	if err != nil {
+		logger.Error("failed to setup telemetry", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := shutdownTelemetry(ctx); err != nil {
+			logger.Error("failed to shutdown telemetry", "error", err)
+		}
+	}()
+
+	if cfg.OTELCollectorAddress != "" {
+		logger.Info("telemetry enabled", "collector", cfg.OTELCollectorAddress)
+	}
 
 	// Register prometheus metrics
 	prometheus.MustRegister(middleware.RequestDuration, middleware.EndpointCount)
@@ -29,12 +57,12 @@ func main() {
 	// Create MCP server with capabilities
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "mcp-server",
-		Version: "0.0.1",
+		Version: version,
 	}, nil)
 	tools.RegisterAll(server)
 
-	// Determine transport mode from environment
-	transport := getEnv("MCP_TRANSPORT", "stdio")
+	// Determine transport mode from config
+	transport := cfg.MCPTransport
 
 	switch transport {
 	case "sse", "http":
@@ -50,7 +78,7 @@ func main() {
 		mux.Handle("/mcp", httpHandler)
 		mux.Handle("/mcp/", httpHandler)
 
-		// Build handler chain: metrics -> auth (if enabled) -> mux
+		// Build handler chain: otelhttp -> mcp tracing -> metrics -> auth (if enabled) -> mux
 		var handler http.Handler = mux
 		if cfg.AuthEnabled {
 			// Protect /mcp endpoints with API key authentication
@@ -59,9 +87,18 @@ func main() {
 			logger.Info("API key authentication enabled", "key_count", cfg.APIKeyCount())
 		}
 		handler = middleware.MetricsMiddleware(handler)
+		handler = middleware.MCPTracingMiddleware(handler)
+		handler = otelhttp.NewHandler(handler, "mcp-server")
 
 		logger.Info("mcp server starting with HTTP transport", "port", cfg.Port)
-		if err := http.ListenAndServe(":"+cfg.Port, handler); err != nil {
+		srv := &http.Server{
+			Addr:         ":" + cfg.Port,
+			Handler:      handler,
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 30 * time.Second,
+			IdleTimeout:  120 * time.Second,
+		}
+		if err := srv.ListenAndServe(); err != nil {
 			logger.Error("http server error", "error", err)
 			os.Exit(1)
 		}
@@ -74,7 +111,14 @@ func main() {
 			mux.HandleFunc("GET /health", handlers.HealthHandler)
 			mux.Handle("GET /metrics", promhttp.Handler())
 			logger.Info("http server starting", "port", cfg.Port)
-			if err := http.ListenAndServe(":"+cfg.Port, middleware.MetricsMiddleware(mux)); err != nil {
+			srv := &http.Server{
+				Addr:         ":" + cfg.Port,
+				Handler:      middleware.MetricsMiddleware(mux),
+				ReadTimeout:  30 * time.Second,
+				WriteTimeout: 30 * time.Second,
+				IdleTimeout:  120 * time.Second,
+			}
+			if err := srv.ListenAndServe(); err != nil {
 				logger.Error("http server error", "error", err)
 			}
 		}()
@@ -87,9 +131,3 @@ func main() {
 	}
 }
 
-func getEnv(key, defaultValue string) string {
-	if v, ok := os.LookupEnv(key); ok {
-		return v
-	}
-	return defaultValue
-}
