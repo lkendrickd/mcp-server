@@ -21,7 +21,10 @@ A Model Context Protocol (MCP) server built with Go, supporting both stdio and H
 |------|-------------|
 | `generate_uuid` | Generate a UUID v4 |
 
-> **Want to add your own tool?** Check out the [Developer Guide](DEVELOPER_GUIDE.md) for a step-by-step walkthrough.
+> **Want to add your own tool?** Check out the [Developer Guide](docs/DEVELOPER_GUIDE.md) for a step-by-step walkthrough.
+
+**MCP Design Flowchart:**
+The flowchart can help guide you during a new tool implementation. [Flowchart](docs/mcptool_chart.md)
 
 ### Requirements
 
