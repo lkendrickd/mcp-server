@@ -1,6 +1,6 @@
 ## MCP-Server
 
-<img src="images/mcp-server.webp" alt="MCP Server Logo" width="400"/>
+<img src="images/logo.png" alt="MCP Server Logo" width="400"/>
 
 A Model Context Protocol (MCP) server built with Go, supporting both stdio and HTTP transports for integration with Claude and other MCP-compatible clients.
 
