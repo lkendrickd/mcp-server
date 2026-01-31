@@ -2,7 +2,7 @@
 
 <img src="images/logo.png" alt="MCP Server Logo" width="400"/>
 
-A Model Context Protocol (MCP) server built with Go, supporting both stdio and HTTP transports for integration with Claude and other MCP-compatible clients.
+A Model Context Protocol (MCP) server built with Go, supporting both stdio and HTTP transports for integration withMCP-compatible clients.
 
 ### Features
 
@@ -11,9 +11,9 @@ A Model Context Protocol (MCP) server built with Go, supporting both stdio and H
 - API key authentication middleware for HTTP transport
 - Prometheus metrics with path, method, and status labels
 - Structured JSON logging via `slog`
-- 12-factor app configuration via environment variables
+- Configuration via environment variables
 - Distroless Docker image for minimal attack surface
-- Comprehensive unit tests with table-driven patterns
+- Comprehensive unit tests with table-driven patterns using only standard library no external test frameworks
 
 ### Tools
 
@@ -57,7 +57,7 @@ make test
 
 ### Configuration
 
-All configuration is via environment variables (12-factor app compliant).
+All configuration is via environment variables.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
