@@ -2,6 +2,8 @@
 
 <img src="images/logo.png" alt="MCP Server Logo" width="400"/>
 
+### Create Tools for your LLMs with MCP-Server! 
+
 A Model Context Protocol (MCP) server built with Go, supporting both stdio and HTTP transports for integration with MCP-compatible clients.
 
 ### Features
