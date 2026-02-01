@@ -99,7 +99,7 @@ RATE_LIMIT_RPS=100 RATE_LIMIT_BURST=50 make run
 
 ### Transport Modes
 
-**Stdio (default):** For use with Claude Desktop and CLI tools. The server communicates via stdin/stdout.
+**Stdio (default):** For use with MCP clients and CLI tools. The server communicates via stdin/stdout.
 
 ```bash
 make run
@@ -161,9 +161,9 @@ Invalid keys return:
 {"error":"invalid API key"}
 ```
 
-### Claude Code Integration - Example Config
+### MCP Client Integration - Example Config
 
-For Claude Code with HTTP transport:
+For MCP clients with HTTP transport:
 
 ```json
 {
