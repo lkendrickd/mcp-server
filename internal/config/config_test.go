@@ -266,53 +266,36 @@ func clearEnv(t *testing.T) {
 	t.Helper()
 	vars := []string{"PORT", "LOG_LEVEL", "AUTH_ENABLED", "API_KEYS", "TEST_BOOL",
 		"OTEL_COLLECTOR_HOST", "OTEL_COLLECTOR_PORT", "OTEL_COLLECTOR_ADDRESS",
-		"LOG_TRACE_PAYLOADS", "RATE_LIMIT_ENABLED", "RATE_LIMIT_RPS", "RATE_LIMIT_BURST",
-		"OTEL_INSECURE", "TEST_FLOAT", "TEST_INT"}
+		"RATE_LIMIT_ENABLED", "RATE_LIMIT_RPS", "RATE_LIMIT_BURST",
+		"TEST_FLOAT", "TEST_INT"}
 	for _, v := range vars {
 		os.Unsetenv(v)
 	}
 }
 
-func TestNew_SecurityConfig(t *testing.T) {
+func TestNew_RateLimitConfig(t *testing.T) {
 	tests := []struct {
 		name                 string
 		envVars              map[string]string
-		wantLogTracePayloads bool
 		wantRateLimitEnabled bool
 		wantRateLimitRPS     float64
 		wantRateLimitBurst   int
-		wantOTELInsecure     bool
 	}{
 		{
-			name:                 "secure defaults",
+			name:                 "defaults",
 			envVars:              map[string]string{},
-			wantLogTracePayloads: false,
 			wantRateLimitEnabled: true,
 			wantRateLimitRPS:     10.0,
 			wantRateLimitBurst:   20,
-			wantOTELInsecure:     false,
-		},
-		{
-			name: "payload logging enabled",
-			envVars: map[string]string{
-				"LOG_TRACE_PAYLOADS": "true",
-			},
-			wantLogTracePayloads: true,
-			wantRateLimitEnabled: true,
-			wantRateLimitRPS:     10.0,
-			wantRateLimitBurst:   20,
-			wantOTELInsecure:     false,
 		},
 		{
 			name: "rate limiting disabled",
 			envVars: map[string]string{
 				"RATE_LIMIT_ENABLED": "false",
 			},
-			wantLogTracePayloads: false,
 			wantRateLimitEnabled: false,
 			wantRateLimitRPS:     10.0,
 			wantRateLimitBurst:   20,
-			wantOTELInsecure:     false,
 		},
 		{
 			name: "custom rate limit settings",
@@ -320,37 +303,20 @@ func TestNew_SecurityConfig(t *testing.T) {
 				"RATE_LIMIT_RPS":   "100.5",
 				"RATE_LIMIT_BURST": "50",
 			},
-			wantLogTracePayloads: false,
 			wantRateLimitEnabled: true,
 			wantRateLimitRPS:     100.5,
 			wantRateLimitBurst:   50,
-			wantOTELInsecure:     false,
 		},
 		{
-			name: "OTEL insecure mode",
+			name: "all rate limit options configured",
 			envVars: map[string]string{
-				"OTEL_INSECURE": "true",
-			},
-			wantLogTracePayloads: false,
-			wantRateLimitEnabled: true,
-			wantRateLimitRPS:     10.0,
-			wantRateLimitBurst:   20,
-			wantOTELInsecure:     true,
-		},
-		{
-			name: "all security options configured",
-			envVars: map[string]string{
-				"LOG_TRACE_PAYLOADS": "true",
 				"RATE_LIMIT_ENABLED": "false",
 				"RATE_LIMIT_RPS":     "50",
 				"RATE_LIMIT_BURST":   "100",
-				"OTEL_INSECURE":      "true",
 			},
-			wantLogTracePayloads: true,
 			wantRateLimitEnabled: false,
 			wantRateLimitRPS:     50.0,
 			wantRateLimitBurst:   100,
-			wantOTELInsecure:     true,
 		},
 	}
 
@@ -363,9 +329,6 @@ func TestNew_SecurityConfig(t *testing.T) {
 
 			cfg := New()
 
-			if cfg.LogTracePayloads != tt.wantLogTracePayloads {
-				t.Errorf("LogTracePayloads = %v, want %v", cfg.LogTracePayloads, tt.wantLogTracePayloads)
-			}
 			if cfg.RateLimitEnabled != tt.wantRateLimitEnabled {
 				t.Errorf("RateLimitEnabled = %v, want %v", cfg.RateLimitEnabled, tt.wantRateLimitEnabled)
 			}
@@ -374,9 +337,6 @@ func TestNew_SecurityConfig(t *testing.T) {
 			}
 			if cfg.RateLimitBurst != tt.wantRateLimitBurst {
 				t.Errorf("RateLimitBurst = %v, want %v", cfg.RateLimitBurst, tt.wantRateLimitBurst)
-			}
-			if cfg.OTELInsecure != tt.wantOTELInsecure {
-				t.Errorf("OTELInsecure = %v, want %v", cfg.OTELInsecure, tt.wantOTELInsecure)
 			}
 		})
 	}

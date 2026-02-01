@@ -19,7 +19,6 @@ type Config struct {
 	ServiceVersion   string
 	CollectorAddress string
 	Environment      string // deployment environment (e.g., "production", "staging", "development")
-	Insecure         bool   // if true, use insecure connection (no TLS). Default false = TLS enabled.
 }
 
 // Setup initializes OpenTelemetry and returns a shutdown function.
@@ -55,15 +54,11 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	)
 	otel.SetTextMapPropagator(prop)
 
-	// Set up trace exporter
-	exporterOpts := []otlptracegrpc.Option{
+	// Set up trace exporter with insecure gRPC connection
+	traceExporter, err := otlptracegrpc.New(ctx,
 		otlptracegrpc.WithEndpoint(cfg.CollectorAddress),
-	}
-	if cfg.Insecure {
-		// Only use insecure connection if explicitly configured (e.g., local dev)
-		exporterOpts = append(exporterOpts, otlptracegrpc.WithInsecure())
-	}
-	traceExporter, err := otlptracegrpc.New(ctx, exporterOpts...)
+		otlptracegrpc.WithInsecure(),
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -57,7 +57,6 @@ func main() {
 		ServiceVersion:   version,
 		CollectorAddress: cfg.OTELCollectorAddress,
 		Environment:      cfg.Environment,
-		Insecure:         cfg.OTELInsecure,
 	})
 	if err != nil {
 		logger.Error("failed to setup telemetry", "error", err)
@@ -71,15 +70,6 @@ func main() {
 
 	if cfg.OTELCollectorAddress != "" {
 		logger.Info("telemetry enabled", "collector", cfg.OTELCollectorAddress)
-		if cfg.OTELInsecure {
-			logger.Warn("OTEL using insecure connection (no TLS) - not recommended for production")
-		}
-	}
-
-	// Configure payload logging for traces (disabled by default for security)
-	middleware.SetLogPayloads(cfg.LogTracePayloads)
-	if cfg.LogTracePayloads {
-		logger.Warn("trace payload logging enabled - sensitive data may be exposed to telemetry backend")
 	}
 
 	// Register prometheus metrics
@@ -118,7 +108,7 @@ func main() {
 			logger.Info("API key authentication enabled", "key_count", cfg.APIKeyCount())
 		}
 		handler = middleware.MetricsMiddleware(handler)
-		handler = middleware.MCPTracingMiddleware(cfg.LogTracePayloads)(handler)
+		handler = middleware.MCPTracingMiddleware()(handler)
 
 		// Add rate limiting if enabled (applied early to reject before expensive ops)
 		var rateLimiter *middleware.RateLimiter

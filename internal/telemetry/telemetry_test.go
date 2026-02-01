@@ -65,66 +65,12 @@ func TestSetup_NoopShutdown(t *testing.T) {
 	}
 }
 
-func TestSetup_InsecureConfig(t *testing.T) {
-	tests := []struct {
-		name     string
-		insecure bool
-	}{
-		{
-			name:     "secure mode (TLS enabled)",
-			insecure: false,
-		},
-		{
-			name:     "insecure mode (no TLS)",
-			insecure: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			cfg := Config{
-				ServiceName:      "test-service",
-				ServiceVersion:   "1.0.0",
-				CollectorAddress: "", // Empty to avoid actual connection
-				Insecure:         tt.insecure,
-			}
-
-			shutdown, err := Setup(ctx, cfg)
-			if err != nil {
-				t.Fatalf("Setup() error = %v", err)
-			}
-
-			if shutdown == nil {
-				t.Fatal("Setup() returned nil shutdown function")
-			}
-
-			if err := shutdown(ctx); err != nil {
-				t.Errorf("shutdown() error = %v", err)
-			}
-		})
-	}
-}
-
-func TestConfig_InsecureDefault(t *testing.T) {
-	cfg := Config{
-		ServiceName:    "test",
-		ServiceVersion: "1.0.0",
-	}
-
-	// Insecure should default to false (secure by default)
-	if cfg.Insecure != false {
-		t.Errorf("Insecure default = %v, want false", cfg.Insecure)
-	}
-}
-
 func TestConfig_Fields(t *testing.T) {
 	cfg := Config{
 		ServiceName:      "my-service",
 		ServiceVersion:   "2.0.0",
 		CollectorAddress: "localhost:4317",
 		Environment:      "production",
-		Insecure:         true,
 	}
 
 	if cfg.ServiceName != "my-service" {
@@ -138,9 +84,6 @@ func TestConfig_Fields(t *testing.T) {
 	}
 	if cfg.Environment != "production" {
 		t.Errorf("Environment = %q, want %q", cfg.Environment, "production")
-	}
-	if cfg.Insecure != true {
-		t.Errorf("Insecure = %v, want true", cfg.Insecure)
 	}
 }
 
@@ -200,7 +143,6 @@ func TestSetup_WithCollectorAddress_CancelledContext(t *testing.T) {
 		ServiceVersion:   "1.0.0",
 		CollectorAddress: "localhost:4317",
 		Environment:      "test",
-		Insecure:         true,
 	}
 
 	// This will attempt to connect but fail due to cancelled context
@@ -215,52 +157,4 @@ func TestSetup_WithCollectorAddress_CancelledContext(t *testing.T) {
 	// We're testing that the function handles this gracefully
 	// The actual error depends on OTEL library internals
 	_ = err
-}
-
-func TestSetup_WithCollectorSecure(t *testing.T) {
-	ctx := context.Background()
-	cfg := Config{
-		ServiceName:      "test-service",
-		ServiceVersion:   "1.0.0",
-		CollectorAddress: "", // Empty = disabled, but tests secure config path
-		Environment:      "production",
-		Insecure:         false, // Secure mode (default)
-	}
-
-	shutdown, err := Setup(ctx, cfg)
-	if err != nil {
-		t.Fatalf("Setup() error = %v", err)
-	}
-
-	if shutdown == nil {
-		t.Fatal("Setup() returned nil shutdown function")
-	}
-
-	if err := shutdown(ctx); err != nil {
-		t.Errorf("shutdown() error = %v", err)
-	}
-}
-
-func TestSetup_WithCollectorInsecure(t *testing.T) {
-	ctx := context.Background()
-	cfg := Config{
-		ServiceName:      "test-service",
-		ServiceVersion:   "1.0.0",
-		CollectorAddress: "", // Empty = disabled
-		Environment:      "development",
-		Insecure:         true, // Insecure mode
-	}
-
-	shutdown, err := Setup(ctx, cfg)
-	if err != nil {
-		t.Fatalf("Setup() error = %v", err)
-	}
-
-	if shutdown == nil {
-		t.Fatal("Setup() returned nil shutdown function")
-	}
-
-	if err := shutdown(ctx); err != nil {
-		t.Errorf("shutdown() error = %v", err)
-	}
 }

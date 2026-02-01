@@ -63,7 +63,7 @@ func TestMCPTracingMiddleware(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			})
 
-			wrapped := MCPTracingMiddleware(false)(handler)
+			wrapped := MCPTracingMiddleware()(handler)
 
 			var reqBody io.Reader
 			if tt.body != "" {
@@ -123,7 +123,7 @@ func TestMCPTracingMiddleware_JSONParsing(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			})
 
-			wrapped := MCPTracingMiddleware(false)(handler)
+			wrapped := MCPTracingMiddleware()(handler)
 
 			req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(tt.body))
 			req.Header.Set("Content-Type", "application/json")
@@ -154,7 +154,7 @@ func TestMCPTracingMiddleware_BodyRestoration(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	wrapped := MCPTracingMiddleware(false)(handler)
+	wrapped := MCPTracingMiddleware()(handler)
 
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(originalBody))
 	rec := httptest.NewRecorder()
@@ -214,25 +214,21 @@ func TestToolCallParams_Unmarshal(t *testing.T) {
 		name     string
 		json     string
 		wantName string
-		wantArgs string
 	}{
 		{
 			name:     "simple tool call",
-			json:     `{"name":"generate_uuid","arguments":{}}`,
+			json:     `{"name":"generate_uuid"}`,
 			wantName: "generate_uuid",
-			wantArgs: "{}",
 		},
 		{
 			name:     "tool call with arguments",
 			json:     `{"name":"greet","arguments":{"name":"world"}}`,
 			wantName: "greet",
-			wantArgs: `{"name":"world"}`,
 		},
 		{
 			name:     "tool call without arguments",
 			json:     `{"name":"test_tool"}`,
 			wantName: "test_tool",
-			wantArgs: "",
 		},
 	}
 
@@ -245,113 +241,7 @@ func TestToolCallParams_Unmarshal(t *testing.T) {
 			if params.Name != tt.wantName {
 				t.Errorf("name = %q, want %q", params.Name, tt.wantName)
 			}
-			if tt.wantArgs != "" && string(params.Arguments) != tt.wantArgs {
-				t.Errorf("arguments = %q, want %q", string(params.Arguments), tt.wantArgs)
-			}
 		})
-	}
-}
-
-func TestMCPTracingMiddleware_PayloadLogging(t *testing.T) {
-	tests := []struct {
-		name        string
-		logPayloads bool
-	}{
-		{
-			name:        "payloads disabled (secure default)",
-			logPayloads: false,
-		},
-		{
-			name:        "payloads enabled",
-			logPayloads: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// Verify body is still readable
-				body, err := io.ReadAll(r.Body)
-				if err != nil {
-					t.Errorf("failed to read body: %v", err)
-				}
-				if len(body) == 0 {
-					t.Error("body should not be empty")
-				}
-				w.WriteHeader(http.StatusOK)
-			})
-
-			wrapped := MCPTracingMiddleware(tt.logPayloads)(handler)
-
-			body := `{"jsonrpc":"2.0","method":"tools/call","id":1,"params":{"name":"test","arguments":{"secret":"password123"}}}`
-			req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(body))
-			req.Header.Set("Content-Type", "application/json")
-			rec := httptest.NewRecorder()
-
-			wrapped.ServeHTTP(rec, req)
-
-			if rec.Code != http.StatusOK {
-				t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
-			}
-		})
-	}
-}
-
-func TestSetLogPayloads(t *testing.T) {
-	// Save original state
-	original := logPayloadsEnabled
-	defer func() { logPayloadsEnabled = original }()
-
-	// Test setting to true
-	SetLogPayloads(true)
-	if !logPayloadsEnabled {
-		t.Error("SetLogPayloads(true) did not enable payload logging")
-	}
-
-	// Test setting to false
-	SetLogPayloads(false)
-	if logPayloadsEnabled {
-		t.Error("SetLogPayloads(false) did not disable payload logging")
-	}
-}
-
-func TestLogPayloadsDefault(t *testing.T) {
-	// logPayloadsEnabled should default to false for security
-	// Note: This test checks the default declaration, not runtime state
-	// since other tests may have modified it
-	if logPayloadsEnabled && false {
-		// This is a compile-time check that the variable exists
-		t.Error("logPayloadsEnabled should exist")
-	}
-}
-
-func TestMCPTracingMiddleware_LargePayloadTruncation(t *testing.T) {
-	// Save and restore original state
-	original := logPayloadsEnabled
-	defer func() { logPayloadsEnabled = original }()
-	SetLogPayloads(true)
-
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	wrapped := MCPTracingMiddleware(true)(handler)
-
-	// Create a large payload (> 4096 bytes)
-	largeArgs := make([]byte, 5000)
-	for i := range largeArgs {
-		largeArgs[i] = 'x'
-	}
-	body := `{"jsonrpc":"2.0","method":"tools/call","id":1,"params":{"name":"test","arguments":"` + string(largeArgs) + `"}}`
-
-	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-
-	wrapped.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 }
 
@@ -368,7 +258,7 @@ func TestMCPTracingMiddleware_InvalidJSON(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	wrapped := MCPTracingMiddleware(false)(handler)
+	wrapped := MCPTracingMiddleware()(handler)
 
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString("{invalid json}"))
 	req.Header.Set("Content-Type", "application/json")
@@ -386,7 +276,7 @@ func TestMCPTracingMiddleware_ToolCallWithoutArguments(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	wrapped := MCPTracingMiddleware(true)(handler)
+	wrapped := MCPTracingMiddleware()(handler)
 
 	// Tool call without arguments field
 	body := `{"jsonrpc":"2.0","method":"tools/call","id":1,"params":{"name":"generate_uuid"}}`
@@ -406,7 +296,7 @@ func TestMCPTracingMiddleware_NonToolCallMethod(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	wrapped := MCPTracingMiddleware(false)(handler)
+	wrapped := MCPTracingMiddleware()(handler)
 
 	// Non-tool call method
 	body := `{"jsonrpc":"2.0","method":"initialize","id":1,"params":{}}`
@@ -426,7 +316,7 @@ func TestMCPTracingMiddleware_RequestWithoutID(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	wrapped := MCPTracingMiddleware(false)(handler)
+	wrapped := MCPTracingMiddleware()(handler)
 
 	// Notification (no ID)
 	body := `{"jsonrpc":"2.0","method":"notifications/initialized"}`
@@ -446,7 +336,7 @@ func TestMCPTracingMiddleware_InvalidToolParams(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	wrapped := MCPTracingMiddleware(false)(handler)
+	wrapped := MCPTracingMiddleware()(handler)
 
 	// tools/call with invalid params structure
 	body := `{"jsonrpc":"2.0","method":"tools/call","id":1,"params":"invalid"}`

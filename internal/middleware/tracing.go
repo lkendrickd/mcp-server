@@ -20,15 +20,12 @@ type mcpRequest struct {
 
 // toolCallParams represents the params for a tools/call request
 type toolCallParams struct {
-	Name      string          `json:"name"`
-	Arguments json.RawMessage `json:"arguments,omitempty"`
+	Name string `json:"name"`
 }
 
 // MCPTracingMiddleware adds MCP-specific attributes to the trace span.
-// It captures the JSON-RPC method, tool name (for tool calls), and optionally arguments.
-// When logPayloads is false (default), sensitive data like payloads and tool arguments
-// are not recorded to prevent exposure of credentials or personal information.
-func MCPTracingMiddleware(logPayloads bool) func(http.Handler) http.Handler {
+// It captures the JSON-RPC method and tool name (for tool calls).
+func MCPTracingMiddleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Only process POST requests to /mcp
@@ -78,25 +75,12 @@ func MCPTracingMiddleware(logPayloads bool) func(http.Handler) http.Handler {
 					}
 				}
 
-				// For tool calls, extract tool name (always safe to log)
+				// For tool calls, extract tool name
 				if req.Method == "tools/call" && req.Params != nil {
 					var toolParams toolCallParams
 					if err := json.Unmarshal(req.Params, &toolParams); err == nil {
 						span.SetAttributes(attribute.String("mcp.tool.name", toolParams.Name))
-						// Only log arguments if payload logging is explicitly enabled
-						if logPayloads && toolParams.Arguments != nil {
-							span.SetAttributes(attribute.String("mcp.tool.arguments", string(toolParams.Arguments)))
-						}
 					}
-				}
-
-				// Only record full payload if explicitly enabled (security risk)
-				if logPayloads {
-					payload := string(body)
-					if len(payload) > 4096 {
-						payload = payload[:4096] + "...(truncated)"
-					}
-					span.SetAttributes(attribute.String("mcp.request.payload", payload))
 				}
 			}
 

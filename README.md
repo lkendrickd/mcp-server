@@ -85,8 +85,6 @@ All configuration is via environment variables.
 | `RATE_LIMIT_BURST` | `20` | Maximum burst size per IP |
 | `OTEL_COLLECTOR_HOST` | | OpenTelemetry collector hostname (enables tracing) |
 | `OTEL_COLLECTOR_PORT` | `4317` | OpenTelemetry collector gRPC port |
-| `OTEL_INSECURE` | `false` | Use insecure gRPC (no TLS) for OTEL collector |
-| `LOG_TRACE_PAYLOADS` | `false` | Log request/response payloads in traces (security risk) |
 
 ```bash
 # Example: Run HTTP with authentication
@@ -133,19 +131,8 @@ RATE_LIMIT_RPS=100 RATE_LIMIT_BURST=200 make run
 
 #### Secure Defaults
 
-- **TLS for OTEL**: Telemetry uses TLS by default (`OTEL_INSECURE=false`)
-- **No payload logging**: Request/response payloads are not logged to traces by default
+- **No payload logging**: Request/response payloads are never logged to traces
 - **Constant-time API key comparison**: Prevents timing attacks on authentication
-
-#### Security Warnings
-
-The server logs warnings when insecure options are enabled:
-
-```bash
-# These log warnings at startup - use only for development
-OTEL_INSECURE=true        # Traces sent without TLS
-LOG_TRACE_PAYLOADS=true   # Sensitive data may be exposed to telemetry
-```
 
 ### Authentication
 
@@ -337,7 +324,6 @@ The instrumentation captures MCP-specific attributes on each trace:
 |-----------|-------------|
 | `mcp.method` | JSON-RPC method (e.g., `tools/call`, `initialize`) |
 | `mcp.tool.name` | Tool being called (e.g., `generate_uuid`) |
-| `mcp.tool.arguments` | Tool input arguments as JSON |
 | `mcp.request.id` | JSON-RPC request ID |
 | `service.name` | Service identifier (`mcp-server`) |
 | `service.version` | Version from the `version` file |
